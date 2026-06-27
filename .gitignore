@@ -31,3 +31,7 @@ yarn-error.log*
 # local env files
 .env
 .env*.local
+
+# capture tooling
+/_cap_video.mjs
+/_vidout/
