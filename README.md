@@ -15,7 +15,7 @@ and anything you type into the editor both flow through the **same**
 `parseCall → analyzeCall` path, so nothing on the page is a canned result. Edit a
 word and the flags, score and disclosure checks all recompute live:
 
-![Pasting a brand-new call recomputes the report](public/live-edit.png)
+![Pasting a brand-new call recomputes the report live](public/demo.gif)
 
 Built as a working proof-of-concept that mirrors the call-analysis capability of
 [**Aveni Detect**](https://aveni.ai/aveni-detect/) (automated QA & Consumer Duty
