@@ -15,6 +15,7 @@ import {
   Flag,
   GoodSignal,
   Severity,
+  Speaker,
   Turn,
   CallTranscript,
 } from "./types";
@@ -76,13 +77,27 @@ export interface TurnFindings {
   goodSignals: GoodSignal[];
 }
 
+/**
+ * Should a speaker-scoped rule be skipped on this turn?
+ *
+ * A rule with no speaker scope fires on every turn. A scoped rule fires on its
+ * own speaker — and ALSO on `unknown` turns, so that a transcript pasted without
+ * "Adviser:" / "Customer:" labels still gets fully analysed (we surface rather
+ * than silently drop). When the turn's speaker is known, scoping is precise.
+ */
+function speakerMismatch(ruleSpeaker: Speaker | undefined, turnSpeaker: Speaker): boolean {
+  if (!ruleSpeaker) return false;
+  if (turnSpeaker === "unknown") return false;
+  return ruleSpeaker !== turnSpeaker;
+}
+
 /** Analyse a single turn. Pure — no knowledge of the rest of the call. */
 export function analyzeTurn(turn: Turn, turnIndex: number): TurnFindings {
   const flags: Flag[] = [];
   const goodSignals: GoodSignal[] = [];
 
   for (const rule of PHRASE_RULES) {
-    if (rule.speaker && rule.speaker !== turn.speaker) continue;
+    if (speakerMismatch(rule.speaker, turn.speaker)) continue;
     for (const span of matchRule(turn.text, rule)) {
       flags.push({
         id: `${turnIndex}:${rule.rule}:${span.start}`,
@@ -101,7 +116,7 @@ export function analyzeTurn(turn: Turn, turnIndex: number): TurnFindings {
   }
 
   for (const rule of GOOD_RULES) {
-    if (rule.speaker && rule.speaker !== turn.speaker) continue;
+    if (speakerMismatch(rule.speaker, turn.speaker)) continue;
     for (const span of matchRule(turn.text, rule)) {
       goodSignals.push({
         id: `${turnIndex}:${rule.rule}:${span.start}`,
@@ -167,6 +182,20 @@ function emptyBySeverity(): Record<Severity, number> {
 
 /** Analyse a whole call into an explainable, scored compliance report. */
 export function analyzeCall(call: CallTranscript): ComplianceReport {
+  // An empty transcript has nothing to analyse — don't raise an "always"
+  // disclosure (e.g. missing recording notice) against a blank editor.
+  if (call.turns.length === 0) {
+    return {
+      flags: [],
+      goodSignals: [],
+      byCategory: emptyByCategory(),
+      bySeverity: emptyBySeverity(),
+      riskScore: 0,
+      band: "Low",
+      summary: "No transcript to analyse yet.",
+    };
+  }
+
   const flags: Flag[] = [];
   const goodSignals: GoodSignal[] = [];
 
@@ -193,10 +222,15 @@ export function analyzeCall(call: CallTranscript): ComplianceReport {
     .slice(0, 3)
     .map((c) => CATEGORY_LABEL[c]);
 
+  const sevParts: string[] = [];
+  if (bySeverity.critical) sevParts.push(`${bySeverity.critical} critical`);
+  if (bySeverity.high) sevParts.push(`${bySeverity.high} high`);
+  const sevText = sevParts.length ? ` (${sevParts.join(", ")})` : "";
+
   const summary =
     flags.length === 0
       ? "No conduct-risk flags raised. Required disclosures present."
-      : `${flags.length} flag${flags.length > 1 ? "s" : ""} (${bySeverity.critical} critical, ${bySeverity.high} high) across ${topCats.join(", ")}.`;
+      : `${flags.length} flag${flags.length > 1 ? "s" : ""}${sevText} across ${topCats.join(", ")}.`;
 
   return {
     flags,

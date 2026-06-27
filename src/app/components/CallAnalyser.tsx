@@ -1,61 +1,82 @@
 "use client";
 
 import { useCallback, useMemo, useRef, useState } from "react";
-import { TRANSCRIPTS, getTranscript } from "@/engine/transcripts";
+import { SAMPLES, getSample } from "@/engine/transcripts";
 import { analyzeCall, disclosureChecklist } from "@/engine/detector";
-import { RiskBand } from "@/engine/types";
-import RiskGauge from "./RiskGauge";
-import TranscriptView from "./TranscriptView";
-import ReportPanel from "./ReportPanel";
+import { parseCall } from "@/engine/parser";
+import ScoreHeader from "./ScoreHeader";
+import TranscriptPanel from "./TranscriptPanel";
+import FindingsPanel from "./FindingsPanel";
+import { Waveform, ExternalLink } from "./icons";
 
-const BAND_DOT: Record<RiskBand, string> = {
-  Low: "dot-low",
-  Medium: "dot-medium",
-  High: "dot-high",
-  Critical: "dot-critical",
-};
+type Mode = "annotated" | "edit";
 
-/** Scroll a child element into the middle of its own scrollable container,
- *  without scrolling the whole page. */
+const PROOF_URL = "https://app.realbotics.ai";
+const REPO_URL = "https://github.com/MakingMofongo/aveni-compliance-demo";
+
+/** Scroll a descendant into the middle of its own scroll container only. */
 function scrollWithin(container: HTMLElement | null, child: Element | null) {
   if (!container || !child) return;
-  const cRect = container.getBoundingClientRect();
-  const eRect = child.getBoundingClientRect();
-  const delta = eRect.top - cRect.top - container.clientHeight / 2 + eRect.height / 2;
+  const c = container.getBoundingClientRect();
+  const e = child.getBoundingClientRect();
+  const delta = e.top - c.top - container.clientHeight / 2 + e.height / 2;
   container.scrollBy({ top: delta, behavior: "smooth" });
 }
 
 export default function CallAnalyser() {
-  const [callId, setCallId] = useState(TRANSCRIPTS[0].id);
+  const [text, setText] = useState(SAMPLES[1].text); // open on the mis-selling call
+  const [sampleId, setSampleId] = useState<string | null>(SAMPLES[1].meta.id);
+  const [mode, setMode] = useState<Mode>("annotated");
   const [activeFlagId, setActiveFlagId] = useState<string | null>(null);
 
-  const call = useMemo(() => getTranscript(callId), [callId]);
+  const meta = useMemo(
+    () => (sampleId ? getSample(sampleId).meta : {}),
+    [sampleId],
+  );
+  const call = useMemo(() => parseCall(text, meta), [text, meta]);
   const report = useMemo(() => analyzeCall(call), [call]);
   const disclosures = useMemo(() => disclosureChecklist(call), [call]);
 
-  const transcriptRef = useRef<HTMLDivElement>(null);
-  const reportRef = useRef<HTMLDivElement>(null);
+  const transcriptScroll = useRef<HTMLDivElement>(null);
+  const findingsScroll = useRef<HTMLDivElement>(null);
 
-  // Picking a flag (from either side) syncs both panels.
-  const pickFlag = useCallback((id: string) => {
-    setActiveFlagId(id);
-    requestAnimationFrame(() => {
-      scrollWithin(
-        transcriptRef.current,
-        transcriptRef.current?.querySelector(`[data-flag-id="${CSS.escape(id)}"]`) ??
-          null,
-      );
-      scrollWithin(
-        reportRef.current,
-        reportRef.current?.querySelector(`[data-card-id="${CSS.escape(id)}"]`) ??
-          null,
-      );
-    });
+  const onChangeText = useCallback((v: string) => {
+    setText(v);
+    // Once the text diverges from the loaded sample, it's a custom transcript.
+    setSampleId((id) => (id && v === getSample(id).text ? id : null));
+    setActiveFlagId(null);
   }, []);
 
-  const selectCall = useCallback((id: string) => {
-    setCallId(id);
+  const loadSample = useCallback((id: string) => {
+    setText(getSample(id).text);
+    setSampleId(id);
     setActiveFlagId(null);
+    setMode("annotated");
+  }, []);
+
+  const clearText = useCallback(() => {
+    setText("");
+    setSampleId(null);
+    setActiveFlagId(null);
+    setMode("edit");
+  }, []);
+
+  // Selecting a flag (from either pane) syncs the highlight and both scrolls.
+  const pickFlag = useCallback((id: string) => {
+    setActiveFlagId(id);
+    setMode("annotated");
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        scrollWithin(
+          transcriptScroll.current,
+          transcriptScroll.current?.querySelector(`[data-flag-id="${CSS.escape(id)}"]`) ?? null,
+        );
+        scrollWithin(
+          findingsScroll.current,
+          findingsScroll.current?.querySelector(`[data-card-id="${CSS.escape(id)}"]`) ?? null,
+        );
+      }),
+    );
   }, []);
 
   return (
@@ -63,138 +84,83 @@ export default function CallAnalyser() {
       <header className="topbar">
         <div className="brand">
           <span className="brand-mark" aria-hidden>
-            <svg viewBox="0 0 24 24" width="26" height="26">
-              <path
-                d="M12 2l8 3v6c0 5-3.5 8.5-8 11-4.5-2.5-8-6-8-11V5l8-3z"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.6"
-                strokeLinejoin="round"
-              />
-              <path
-                d="M8.5 12.5l2.3 2.3 4.7-5"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
+            <Waveform size={20} />
           </span>
-          <div className="brand-text">
-            <h1>CallGuard</h1>
-            <p>Adviser-call compliance &amp; conduct-risk analysis</p>
-          </div>
+          <span className="brand-text">
+            <span className="brand-name">Call Compliance Analyser</span>
+            <span className="brand-sub">Consumer Duty conduct-risk review</span>
+          </span>
         </div>
         <div className="topbar-right">
           <span
-            className="badge"
-            title="The transcripts are sample data. The detection engine is real, pure and unit-tested."
+            className="live-tag"
+            title="Every result on this page is computed live by a pure, unit-tested engine."
           >
-            sample transcripts · real detection engine
+            <span className="live-dot" />
+            live engine
           </span>
-          <a
-            className="repo-link"
-            href="https://github.com/MakingMofongo/aveni-compliance-demo"
-            target="_blank"
-            rel="noreferrer"
-          >
-            source ↗
+          <a className="ghost-link" href={REPO_URL} target="_blank" rel="noreferrer">
+            Source <ExternalLink size={12} />
           </a>
         </div>
       </header>
 
-      <div className="subbar">
-        <p>
-          A working proof-of-concept that analyses recorded adviser↔customer
-          calls for Consumer Duty conduct risk — the same shape as a call-monitoring
-          QA product. Pick a call to see it scored.
-        </p>
-      </div>
+      <p className="lede">
+        Paste a recorded call below &#8212; whether the adviser is a person or an
+        AI voice agent &#8212; or load a sample. The flags, risk score and
+        required-disclosure checks all recompute as you type; nothing on this
+        page is pre-canned.
+      </p>
 
-      <nav className="callpicker" aria-label="Sample calls">
-        {TRANSCRIPTS.map((t) => {
-          const band = analyzeCall(t).band;
-          const active = t.id === callId;
-          return (
-            <button
-              key={t.id}
-              className={`call-pill${active ? " call-pill-active" : ""}`}
-              onClick={() => selectCall(t.id)}
-            >
-              <span className={`pill-dot ${BAND_DOT[band]}`} />
-              <span className="pill-text">
-                <strong>{t.title}</strong>
-                <small>{t.blurb}</small>
-              </span>
-            </button>
-          );
-        })}
-      </nav>
+      <ScoreHeader report={report} call={call} />
 
-      <section className={`callbar band-${report.band.toLowerCase()}`}>
-        <div className="callbar-id">
-          <div className="callbar-parties">
-            <span className="party adviser">{call.adviser}</span>
-            <span className="party-arrow">↔</span>
-            <span className="party customer">{call.customer}</span>
-          </div>
-          <div className="callbar-meta">
-            <span className="meta-pill">{call.product}</span>
-            <span className="meta-sep">·</span>
-            <span>{call.turns.length} turns</span>
-            <span className="meta-sep">·</span>
-            <span>{call.durationLabel}</span>
-          </div>
-        </div>
-        <RiskGauge score={report.riskScore} band={report.band} />
-      </section>
-
-      <main className="grid">
-        <section className="card transcript-card">
-          <header className="card-head">
-            <h2>Call transcript</h2>
-            <span className="card-kicker">{call.title}</span>
-          </header>
-          <div className="card-scroll" ref={transcriptRef}>
-            <TranscriptView
-              call={call}
-              flags={report.flags}
-              goodSignals={report.goodSignals}
-              activeFlagId={activeFlagId}
-              onPickFlag={pickFlag}
-            />
-          </div>
-        </section>
-
-        <aside className="card report-card">
-          <header className="card-head">
-            <h2>Compliance report</h2>
-            <span className="card-kicker">explainable · scored</span>
-          </header>
-          <div className="card-scroll" ref={reportRef}>
-            <ReportPanel
-              report={report}
-              disclosures={disclosures}
-              activeFlagId={activeFlagId}
-              onPickFlag={pickFlag}
-            />
-          </div>
-        </aside>
+      <main className="workspace">
+        <TranscriptPanel
+          text={text}
+          onChangeText={onChangeText}
+          mode={mode}
+          onChangeMode={setMode}
+          samples={SAMPLES}
+          activeSampleId={sampleId}
+          onLoadSample={loadSample}
+          onClear={clearText}
+          call={call}
+          report={report}
+          activeFlagId={activeFlagId}
+          onPickFlag={pickFlag}
+          scrollRef={transcriptScroll}
+        />
+        <FindingsPanel
+          report={report}
+          disclosures={disclosures}
+          call={call}
+          activeFlagId={activeFlagId}
+          onPickFlag={pickFlag}
+          scrollRef={findingsScroll}
+        />
       </main>
 
       <footer className="footnote">
         <p>
           <strong>What&apos;s real:</strong> the detector is pure, dependency-free
-          TypeScript covered by unit tests — every flag exposes the exact phrase,
-          a severity and a reason, and the missing-disclosure checks reason over
-          the whole call. <strong>What&apos;s sample:</strong> the three
-          transcripts. In production these turns come from a speech-to-text
-          pipeline (Deepgram / Whisper) over the recorded call audio; the engine
-          is unchanged. Built by Abdul Rasheed to mirror the call-analysis
-          capability of{" "}
+          TypeScript with 53 unit tests. Each flag exposes the exact triggering
+          phrase, a severity and a reason; the missing-disclosure checks reason
+          over the whole call; the score is a transparent severity-weighted sum.
+          The same checks govern a human adviser or an AI voice agent &#8212; the
+          assurance layer over the call, not just the person. Paste any call and
+          watch it re-analyse.{" "}
+          <strong>What&apos;s sample:</strong> the four sample calls &#8212; in
+          production these turns come from a speech-to-text pipeline (Deepgram /
+          Whisper) over the recorded audio, and the engine is unchanged.
+        </p>
+        <p className="footnote-by">
+          Built by Abdul Rasheed to mirror the call-analysis capability of{" "}
           <a href="https://aveni.ai/aveni-detect/" target="_blank" rel="noreferrer">
             Aveni Detect
+          </a>
+          , and to govern the AI voice agents he builds at{" "}
+          <a href={PROOF_URL} target="_blank" rel="noreferrer">
+            app.realbotics.ai
           </a>
           .
         </p>

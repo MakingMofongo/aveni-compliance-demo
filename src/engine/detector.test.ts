@@ -1,6 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { analyzeCall, analyzeTurn, requiredDisclosures } from "./detector";
-import { CLEAN_CALL, MISSELLING_CALL, VULNERABLE_CALL } from "./transcripts";
+import {
+  CLEAN_CALL,
+  MISSELLING_CALL,
+  VULNERABLE_CALL,
+  AI_AGENT_CALL,
+} from "./transcripts";
 import { Turn, Flag } from "./types";
 import { bandFor, scoreFromWeights } from "./util";
 
@@ -227,5 +232,40 @@ describe("engine invariants", () => {
     const mis = analyzeCall(MISSELLING_CALL).riskScore;
     expect(clean).toBeLessThan(vuln);
     expect(vuln).toBeLessThan(mis);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AGENTIC ASSURANCE — the same engine governs an AI VOICE AGENT's call, not
+// just a human adviser. The "Agent:" turns are scored exactly like an adviser.
+// ---------------------------------------------------------------------------
+describe("AI-voice-agent call (agent assurance)", () => {
+  const r = analyzeCall(AI_AGENT_CALL);
+
+  it("scores Critical — an ungoverned agent racks up conduct risk", () => {
+    expect(r.band).toBe("Critical");
+    expect(r.riskScore).toBeGreaterThanOrEqual(60);
+  });
+
+  it("attributes the guarantee breaches to the AI agent (adviser role)", () => {
+    expect(r.byCategory.guarantee.length).toBeGreaterThanOrEqual(2);
+    expect(r.byCategory.guarantee.every((f) => f.speaker === "adviser")).toBe(
+      true,
+    );
+    expect(
+      r.byCategory.guarantee.some((f) => /risk-free/i.test(f.quote)),
+    ).toBe(true);
+  });
+
+  it("still catches the vulnerability the agent talked over", () => {
+    // health + low resilience signals the agent ignored and pressed past.
+    expect(r.byCategory.vulnerable.length).toBeGreaterThanOrEqual(2);
+    expect(r.byCategory.vulnerable.every((f) => f.speaker === "customer")).toBe(
+      true,
+    );
+  });
+
+  it("flags the agent's manufactured urgency", () => {
+    expect(rules(r.byCategory.pressure)).toContain("pressure_deadline");
   });
 });

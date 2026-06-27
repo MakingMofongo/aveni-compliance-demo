@@ -5,8 +5,14 @@
 
 # next.js
 /.next/
+/.next-verify/
 /out/
 next-env.d.ts
+
+# local capture / verification tooling (not part of the demo)
+/_capture.mjs
+/_cap_final.mjs
+/cap/
 
 # production
 /build

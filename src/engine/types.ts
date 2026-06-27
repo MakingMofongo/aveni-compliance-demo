@@ -4,7 +4,10 @@
 // explainable compliance report: every flag points at the exact phrase that
 // triggered it, the conduct-risk category, a severity, and a one-line "why".
 
-export type Speaker = "adviser" | "customer" | "system";
+// "unknown" is used for pasted lines whose speaker could not be identified
+// (e.g. raw prose with no "Adviser:" / "Customer:" labels). Speaker-scoped
+// rules still fire on unknown turns so detection degrades gracefully.
+export type Speaker = "adviser" | "customer" | "system" | "unknown";
 
 /** Conduct-risk categories a UK financial-compliance team cares about. */
 export type Category =
@@ -75,9 +78,11 @@ export interface ComplianceReport {
 
 export interface Turn {
   speaker: Speaker;
-  /** Clock label for display, e.g. "00:42". */
+  /** Clock label for display, e.g. "00:42". Empty when none was supplied. */
   t: string;
   text: string;
+  /** Original speaker label as written, e.g. "Adviser", "Dean", "Agent 2". */
+  name?: string;
 }
 
 export interface CallTranscript {
